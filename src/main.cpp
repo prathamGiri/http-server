@@ -1,6 +1,9 @@
-#include <iostream>
 #include "Socket.hpp"
+#include "HTTPRequest.hpp"
+#include "HTTPResponse.hpp"
 
+#include <iostream>
+#include <string>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -60,11 +63,38 @@ int main(){
 
     std::cout << "Received: " << buffer << std::endl;
 
+    HTTPRequest request = HTTPRequest::parse(buffer);
+
+    HTTPResponse resObj;
+
+    resObj.setHeader("Content-Type", "text/plain");
+    resObj.setHeader("Connection", "close");
+    resObj.setBody("Hello from my C++ HTTP Server!");
+
+    std::string response = resObj.toString();
+    
     // Step 6 : echo back the data
+    // ssize_t bytesSent = send(
+    //     client_fd,
+    //     buffer,
+    //     bytesReceived,
+    //     0
+    // );
+
+    // std::string body = "Hello from my C++ HTTP Server!";
+
+    // std::string response =
+    //     "HTTP/1.1 200 OK\r\n"
+    //     "Content-Type: text/plain\r\n"
+    //     "Content-Length: " + std::to_string(body.size()) + "\r\n"
+    //     "Connection: close\r\n"
+    //     "\r\n" +
+    //     body;
+
     ssize_t bytesSent = send(
         client_fd,
-        buffer,
-        bytesReceived,
+        response.c_str(),
+        response.size(),
         0
     );
 
