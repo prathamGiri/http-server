@@ -38,7 +38,16 @@ HTTPRequest HTTPRequest::parse(const std::string& request){
         reqObj.headers[key] = value;
     }
 
-    // ss >> reqObj.body; 
+    std::string remaining;
+    std::string body;
+
+    while(std::getline(ss, remaining)){
+        body+=remaining;
+        if(!ss.eof()){
+            body+='\n';
+        }
+    }
+    reqObj.body = body;
 
     return reqObj;
 }
