@@ -5,6 +5,8 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <sys/epoll.h>
+
 #include <iostream>
 #include <string>
 #include <thread>
@@ -79,23 +81,81 @@ void Server::start(){
     }
     std::cout << "Listening on port 8080..." << std::endl;
 
+    // epoll asks the kernel to notify/wake our process when 
+    // one of the registered file descriptors becomes ready 
+    // for an event, such as having data available to read.
+    int epoll_fd = epoll_create1(0);
+    if (epoll_fd == -1)
+    {
+        std::cerr << "Failed to create epoll\n";
+        return 1;
+    }
+
+    epoll_event serverEvent{};
+
+    serverEvent.events = EPOLLIN;
+    serverEvent.data.fd = server.getFD();
+
+    // register the listining client
+    if (epoll_ctl(
+            epoll_fd,
+            EPOLL_CTL_ADD,
+            server.getFD(),
+            &serverEvent
+        ) == -1)
+    {
+        std::cerr << "Failed to add server socket to epoll\n";
+        return 1;
+    }
+
+    epoll_event events[10];
+
     while(true){
-        // STEP 4 : create client
-        sockaddr_in clientAddress;
-        socklen_t clientAddrSize = sizeof(clientAddress);
+        // wait indefinitely(-1) until something happens
+        int event_count = epoll_wait(
+            epoll_fd,
+            events,
+            10,
+            -1
+        );
 
-        int client_fd = accept(socket.getFD(), (sockaddr*)&clientAddress, &clientAddrSize);
-
-        if(client_fd < 0){
-            std::cerr << "Client Connection failed!" << std::endl;
-            return;
+        if (event_count == -1)
+        {
+            std::cerr << "epoll_wait failed\n";
+            return 1;
         }
-        std::cout << "Client Connected!!" << std::endl;
 
-        std::thread(
-            &Server::handleClient,
-            this,
-            client_fd
-        ).detach();
+        for (int i = 0; i < event_count; i++)
+        {   
+            int fd = events[i].data.fd;
+            if (fd == socket.getFD())
+            {
+                std::cout << "New connection!\n";
+
+                // STEP 4 : create client
+                sockaddr_in clientAddress;
+                socklen_t clientAddrSize = sizeof(clientAddress);
+
+                int client_fd = accept(socket.getFD(), (sockaddr*)&clientAddress, &clientAddrSize);
+                if(client_fd < 0){
+                    std::cerr << "Client Connection failed!" << std::endl;
+                    continue;
+                }
+                std::cout << "Accepted client: " << client_fd << std::endl;
+            }
+            
+        }
+
+        // std::thread(
+        //     FUNCTION,
+        //     OBJECT,
+        //     ARGUMENTS...
+        // );
+
+        // std::thread(
+        //     &Server::handleClient,
+        //     this,
+        //     client_fd
+        // ).detach();
     }
 }

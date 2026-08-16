@@ -34,6 +34,4 @@ jobs:
             cmake ..
 
             make
-
-            ./server
           EOF
