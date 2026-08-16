@@ -142,8 +142,30 @@ void Server::start(){
                     continue;
                 }
                 std::cout << "Accepted client: " << client_fd << std::endl;
+
+                epoll_event clientEvent{};
+
+                clientEvent.events = EPOLLIN;
+                clientEvent.data.fd = client_fd;
+
+                if (epoll_ctl(
+                        epoll_fd,
+                        EPOLL_CTL_ADD,
+                        client_fd,
+                        &clientEvent
+                    ) == -1)
+                {
+                    std::cerr << "Failed to add client socket to epoll\n";
+                    close(client_fd);
+                    continue;
+                }
+            }else
+            {
+                // Existing client has sent data
+                std::cout << "Client "
+                        << fd
+                        << " has data\n";
             }
-            
         }
 
         // std::thread(
