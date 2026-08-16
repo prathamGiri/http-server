@@ -94,13 +94,13 @@ void Server::start(){
     epoll_event serverEvent{};
 
     serverEvent.events = EPOLLIN;
-    serverEvent.data.fd = server.getFD();
+    serverEvent.data.fd = socket.getFD();
 
     // register the listining client
     if (epoll_ctl(
             epoll_fd,
             EPOLL_CTL_ADD,
-            server.getFD(),
+            socket.getFD(),
             &serverEvent
         ) == -1)
     {
