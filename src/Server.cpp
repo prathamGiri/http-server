@@ -88,7 +88,7 @@ void Server::start(){
     if (epoll_fd == -1)
     {
         std::cerr << "Failed to create epoll\n";
-        return 1;
+        return;
     }
 
     epoll_event serverEvent{};
@@ -105,7 +105,7 @@ void Server::start(){
         ) == -1)
     {
         std::cerr << "Failed to add server socket to epoll\n";
-        return 1;
+        return;
     }
 
     epoll_event events[10];
@@ -122,7 +122,7 @@ void Server::start(){
         if (event_count == -1)
         {
             std::cerr << "epoll_wait failed\n";
-            return 1;
+            return;
         }
 
         for (int i = 0; i < event_count; i++)
