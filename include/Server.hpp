@@ -4,6 +4,8 @@
 class Server{
 private:
     int port;
+    int epoll_fd;
+    
     Router router;
 
 public:

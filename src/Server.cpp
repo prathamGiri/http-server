@@ -6,10 +6,28 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <sys/epoll.h>
+#include <fcntl.h>
+#include <cerrno>
 
 #include <iostream>
 #include <string>
 #include <thread>
+
+void setNonBlocking(int fd)
+{
+    int flags = fcntl(fd, F_GETFL, 0);
+
+    if (flags == -1)
+    {
+        std::cerr << "fcntl F_GETFL failed\n";
+        return;
+    }
+
+    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1)
+    {
+        std::cerr << "fcntl F_SETFL failed\n";
+    }
+}
 
 Server::Server(const int port) : port(port) {
 }
@@ -28,39 +46,73 @@ void Server::handleClient(int client_fd){
         sizeof(buffer) - 1,
         0
     );
-
-    if (bytesReceived < 0)
+    if (bytesReceived > 0)
     {
-        std::cerr << "Receive failed!" << std::endl;
+        buffer[bytesReceived] = '\0';
+        std::cout << "Received: " << buffer << std::endl;
+
+        HTTPRequest request = HTTPRequest::parse(buffer);
+
+        HTTPResponse resObj = router.route(request);
+        std::string response = resObj.toString();
+
+        ssize_t bytesSent = send(
+            client_fd,
+            response.c_str(),
+            response.size(),
+            0
+        );
+
+        if (bytesSent < 0)
+        {
+            std::cerr << "Send failed!" << std::endl;
+        }
+        
+        epoll_ctl(
+            epoll_fd,
+            EPOLL_CTL_DEL,
+            client_fd,
+            nullptr
+        );
         close(client_fd);
-        return;
-    }
-
-    std::cout << "Received: " << buffer << std::endl;
-
-    HTTPRequest request = HTTPRequest::parse(buffer);
-
-    HTTPResponse resObj = router.route(request);
-    std::string response = resObj.toString();
-
-    ssize_t bytesSent = send(
-        client_fd,
-        response.c_str(),
-        response.size(),
-        0
-    );
-
-    if (bytesSent < 0)
+    }else if (bytesReceived == 0)
     {
-        std::cerr << "Send failed!" << std::endl;
-    }
+        std::cout << "Client disconnected\n";
 
-    close(client_fd);
+        epoll_ctl(
+            epoll_fd,
+            EPOLL_CTL_DEL,
+            client_fd,
+            nullptr
+        );
+
+        close(client_fd);
+    }else
+    {
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+        {
+            return;
+        }
+        else
+        {
+            std::cerr << "recv failed\n";
+
+            epoll_ctl(
+                epoll_fd,
+                EPOLL_CTL_DEL,
+                client_fd,
+                nullptr
+            );
+
+            close(client_fd);
+        }
+    }
 }
 
 void Server::start(){
     // STEP 1 : Create the server socket
     Socket socket;
+    setNonBlocking(socket.getFD());
 
     // STEP 2 : bind the socket to a port
     sockaddr_in serverAddress;
@@ -84,7 +136,7 @@ void Server::start(){
     // epoll asks the kernel to notify/wake our process when 
     // one of the registered file descriptors becomes ready 
     // for an event, such as having data available to read.
-    int epoll_fd = epoll_create1(0);
+    epoll_fd = epoll_create1(0);
     if (epoll_fd == -1)
     {
         std::cerr << "Failed to create epoll\n";
@@ -141,6 +193,7 @@ void Server::start(){
                     std::cerr << "Client Connection failed!" << std::endl;
                     continue;
                 }
+                setNonBlocking(client_fd);
                 std::cout << "Accepted client: " << client_fd << std::endl;
 
                 epoll_event clientEvent{};
@@ -161,23 +214,19 @@ void Server::start(){
                 }
             }else
             {
-                // Existing client has sent data
-                std::cout << "Client "
-                        << fd
-                        << " has data\n";
+                // std::thread(
+                //     FUNCTION,
+                //     OBJECT,
+                //     ARGUMENTS...
+                // );
+
+                // std::thread(
+                //     &Server::handleClient,
+                //     this,
+                //     client_fd
+                // ).detach();
+                Server::handleClient(fd);
             }
         }
-
-        // std::thread(
-        //     FUNCTION,
-        //     OBJECT,
-        //     ARGUMENTS...
-        // );
-
-        // std::thread(
-        //     &Server::handleClient,
-        //     this,
-        //     client_fd
-        // ).detach();
     }
 }
