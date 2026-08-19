@@ -37,6 +37,61 @@ void Server::setRouter(Router router){
     this->router = router;
 }
 
+void Server::handleWrite(int client_fd){
+
+    auto& client = *clients.at(client_fd);
+
+    if (client.writeBuffer.empty())
+    {
+        return;
+    }
+    
+    ssize_t bytesSent = send(
+        client_fd,
+        client.writeBuffer.c_str(),
+        client.writeBuffer.size(),
+        0
+    );
+
+    if (bytesSent < 0)
+    {   
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+        {
+            return;
+        }
+        std::cerr << "Send failed!" << std::endl;
+
+        epoll_ctl(
+            epoll_fd,
+            EPOLL_CTL_DEL,
+            client_fd,
+            nullptr
+        );
+
+        close(client_fd);
+        clients.erase(client_fd);
+    }else if (bytesSent > 0)
+    {
+        client.writeBuffer.erase(0,bytesSent);
+        if (client.writeBuffer.empty())
+        {
+            epoll_event event{};
+            event.events = EPOLLIN;
+            event.data.fd = client_fd;
+
+            if(epoll_ctl(
+                epoll_fd,
+                EPOLL_CTL_MOD,
+                client_fd,
+                &event
+            )){
+                std::cerr << "Failed to disable EPOLLOUT\n";
+            };
+        }
+        
+    }
+}
+
 void Server::handleClient(int client_fd){
     //Step 5 : Receive date from client
     char buffer[4096];
@@ -49,7 +104,9 @@ void Server::handleClient(int client_fd){
     );
     if (bytesReceived > 0)
     {
-        std::cout << "Received: " << buffer << std::endl;
+        std::cout << "Received: " << 
+        std::cout.write(buffer, bytesReceived); << 
+        std::endl;
 
         // append the buffer to the client connection storage
         auto& client = *clients.at(client_fd);
@@ -65,30 +122,21 @@ void Server::handleClient(int client_fd){
             HTTPRequest request = HTTPRequest::parse(client.readBuffer);
 
             HTTPResponse resObj = router.route(request);
-            std::string response = resObj.toString();
+            client.writeBuffer = resObj.toString();
 
-            ssize_t bytesSent = send(
-                client_fd,
-                response.c_str(),
-                response.size(),
-                0
-            );
+            epoll_event event{};
+            event.events = EPOLLIN | EPOLLOUT;
+            event.data.fd = client_fd;
 
-            if (bytesSent < 0)
+            if (epoll_ctl(
+                    epoll_fd,
+                    EPOLL_CTL_MOD,
+                    client_fd,
+                    &event
+                ) == -1)
             {
-                std::cerr << "Send failed!" << std::endl;
+                std::cerr << "Failed to modify client event\n";
             }
-            
-            epoll_ctl(
-                epoll_fd,
-                EPOLL_CTL_DEL,
-                client_fd,
-                nullptr
-            );
-            close(client_fd);
-
-            // Remove the ClientConnection from our map
-            clients.erase(client_fd);
         }
     }else if (bytesReceived == 0)
     {
@@ -238,18 +286,14 @@ void Server::start(){
                 }
             }else
             {
-                // std::thread(
-                //     FUNCTION,
-                //     OBJECT,
-                //     ARGUMENTS...
-                // );
-
-                // std::thread(
-                //     &Server::handleClient,
-                //     this,
-                //     client_fd
-                // ).detach();
-                Server::handleClient(fd);
+                if (events[i].events & EPOLLIN)
+                {
+                    handleClient(fd);
+                }
+                if (events[i].events & EPOLLOUT)
+                {
+                    handleWrite(fd);
+                }
             }
         }
     }

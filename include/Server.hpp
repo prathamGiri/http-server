@@ -20,4 +20,6 @@ public:
     void start();
 
     void handleClient(int client_fd);
+    
+    void handleWrite(int client_fd);
 };
