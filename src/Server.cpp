@@ -104,9 +104,9 @@ void Server::handleClient(int client_fd){
     );
     if (bytesReceived > 0)
     {
-        std::cout << "Received: " << 
-        std::cout.write(buffer, bytesReceived); << 
-        std::endl;
+        std::cout << "Received: ";
+        std::cout.write(buffer, bytesReceived);
+        std::cout << "\n";
 
         // append the buffer to the client connection storage
         auto& client = *clients.at(client_fd);
