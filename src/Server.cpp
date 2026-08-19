@@ -1,5 +1,6 @@
 #include "Server.hpp"
 #include "Socket.hpp"
+#include "ClientConnection.hpp"
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -48,33 +49,47 @@ void Server::handleClient(int client_fd){
     );
     if (bytesReceived > 0)
     {
-        buffer[bytesReceived] = '\0';
         std::cout << "Received: " << buffer << std::endl;
 
-        HTTPRequest request = HTTPRequest::parse(buffer);
+        // append the buffer to the client connection storage
+        auto& client = *clients.at(client_fd);
 
-        HTTPResponse resObj = router.route(request);
-        std::string response = resObj.toString();
-
-        ssize_t bytesSent = send(
-            client_fd,
-            response.c_str(),
-            response.size(),
-            0
+        client.readBuffer.append(
+            buffer,
+            bytesReceived
         );
 
-        if (bytesSent < 0)
+        // only parse when complete data received
+        if (client.readBuffer.find("\r\n\r\n") != std::string::npos)
         {
-            std::cerr << "Send failed!" << std::endl;
+            HTTPRequest request = HTTPRequest::parse(client.readBuffer);
+
+            HTTPResponse resObj = router.route(request);
+            std::string response = resObj.toString();
+
+            ssize_t bytesSent = send(
+                client_fd,
+                response.c_str(),
+                response.size(),
+                0
+            );
+
+            if (bytesSent < 0)
+            {
+                std::cerr << "Send failed!" << std::endl;
+            }
+            
+            epoll_ctl(
+                epoll_fd,
+                EPOLL_CTL_DEL,
+                client_fd,
+                nullptr
+            );
+            close(client_fd);
+
+            // Remove the ClientConnection from our map
+            clients.erase(client_fd);
         }
-        
-        epoll_ctl(
-            epoll_fd,
-            EPOLL_CTL_DEL,
-            client_fd,
-            nullptr
-        );
-        close(client_fd);
     }else if (bytesReceived == 0)
     {
         std::cout << "Client disconnected\n";
@@ -87,6 +102,9 @@ void Server::handleClient(int client_fd){
         );
 
         close(client_fd);
+
+        // Remove the ClientConnection from our map
+        clients.erase(client_fd);
     }else
     {
         if (errno == EAGAIN || errno == EWOULDBLOCK)
@@ -105,6 +123,8 @@ void Server::handleClient(int client_fd){
             );
 
             close(client_fd);
+            // Remove the ClientConnection from clients map
+            clients.erase(client_fd);
         }
     }
 }
@@ -196,6 +216,10 @@ void Server::start(){
                 setNonBlocking(client_fd);
                 std::cout << "Accepted client: " << client_fd << std::endl;
 
+                // create a client connection object to store the segmented buffer
+                auto client = std::make_unique<ClientConnection>(client_fd);
+                clients[client_fd] = std::move(client); // to transfer the ownership of a unique pointer, use move
+                
                 epoll_event clientEvent{};
 
                 clientEvent.events = EPOLLIN;
