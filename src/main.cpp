@@ -48,7 +48,6 @@ int main(){
         [](const HTTPRequest&)
         {
             HTTPResponse response;
-
             response.setBody("Login Successful");
 
             return response;

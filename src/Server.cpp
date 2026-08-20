@@ -99,7 +99,7 @@ void Server::handleClient(int client_fd){
     ssize_t bytesReceived = recv(
         client_fd,
         buffer,
-        sizeof(buffer) - 1,
+        sizeof(buffer),
         0
     );
     if (bytesReceived > 0)
@@ -116,14 +116,40 @@ void Server::handleClient(int client_fd){
             bytesReceived
         );
 
-        // only parse when complete data received
-        if (client.readBuffer.find("\r\n\r\n") != std::string::npos)
+        // if multiple requests at once
+        while (true)
         {
-            HTTPRequest request = HTTPRequest::parse(client.readBuffer);
+            // only parse when complete data received
+            std::size_t requestEnd = client.readBuffer.find("\r\n\r\n");
+            if (requestEnd == std::string::npos)
+            {
+                break;
+            }
+            std::size_t requestSize = requestEnd+4;
+            std::string headers = client.readBuffer.substr(0, requestSize);
+            std::size_t contentLength = 0;
+            std::size_t contentPos = headers.find("Content-Length:");
+            if (contentPos != std::string::npos)
+            {
+                contentPos+=std::string("Content-Length:").length();
+                while (contentPos < requestSize && headers[contentPos] == ' ')
+                {
+                    contentPos++;
+                }
+                contentLength = std::stoul(headers.substr(contentPos));
+            }
+            if(client.readBuffer.length() - requestSize < contentLength){
+                break;
+            }
+            requestSize+=contentLength;
+            std::string requestData = client.readBuffer.substr(0, requestSize);
+            client.readBuffer.erase(0, requestSize);
+            HTTPRequest request = HTTPRequest::parse(requestData);
 
             HTTPResponse resObj = router.route(request);
-            client.writeBuffer = resObj.toString();
-
+            client.writeBuffer += resObj.toString();
+        }
+        if(!client.writeBuffer.empty()){
             epoll_event event{};
             event.events = EPOLLIN | EPOLLOUT;
             event.data.fd = client_fd;
