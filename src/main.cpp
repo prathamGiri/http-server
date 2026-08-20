@@ -45,10 +45,10 @@ int main(){
 
     router.post(
         "/login",
-        [](const HTTPRequest&)
+        [](const HTTPRequest& request)
         {
             HTTPResponse response;
-            response.setBody("Login Successful");
+            response.setBody("Login Successful using:" + request.body);
 
             return response;
         }
