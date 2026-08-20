@@ -21,7 +21,7 @@ HTTPRequest HTTPRequest::parse(const std::string& request){
     ss >> reqObj.method >> reqObj.path >> reqObj.version;
 
     std::string line;
-
+    std::getline(ss, line);
     while(std::getline(ss, line)){
         if(!line.empty() && line.back() == '\r') line.pop_back();
         if(line.empty()) break;
