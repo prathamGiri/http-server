@@ -7,7 +7,7 @@
 
 namespace fs = std::filesystem;
 
-Logger::Logger(std::string logFile = "/var/log/ServerLogs.log"){
+Logger::Logger(std::string logFile){
     this->logFile = logFile;
 
     fs::path path(logFile);

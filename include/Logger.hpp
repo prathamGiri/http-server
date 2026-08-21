@@ -9,8 +9,7 @@ class Logger{
     public:
         std::string logFile;
         std::unordered_map<int, std::string> levelList;
-        Logger(std::string logFile): logFile(logFile){
-        };
+        Logger(std::string logFile = "/var/log/ServerLogs.log");
         void log(
             int level, 
             const std::string& method, 
