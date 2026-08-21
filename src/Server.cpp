@@ -18,8 +18,8 @@
 constexpr std::size_t MAX_HEADER_SIZE = 8 * 1024;
 constexpr std::size_t MAX_BODY_SIZE = 1 * 1024 * 1024;
 
-Logger::Logger serverLogger;
-Logger::Logger clientLogger("/var/log/ClientLogs.log");
+Logger serverLogger;
+Logger clientLogger("/var/log/ClientLogs.log");
 
 void setNonBlocking(int fd)
 {
@@ -270,11 +270,11 @@ void Server::start(){
 
     // STEP 3 : start listening 
     if(listen(socket.getFD(), 5) < 0){
-        serverLogger.log(3, "listen", "/", 500, "Failed to listen on port: "+port);
+        serverLogger.log(3, "listen", "/", 500, "Failed to listen on port: "+ std::to_string(port));
         std::cerr << "Failed to listen!" << std::endl;
         return;
     }
-    serverLogger.log(1, "listen", "/", 200, "Listening on port: "+port);
+    serverLogger.log(1, "listen", "/", 200, "Listening on port: "+std::to_string(port));
     std::cout << "Listening on port" << port << "..." << std::endl;
 
     // epoll asks the kernel to notify/wake our process when 
