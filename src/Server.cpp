@@ -34,7 +34,7 @@ HTTPResponse sendErrorResponse(int statusCode, std::string statusText){
     HTTPResponse errRes;
     errRes.setStatus(statusCode, statusText);
     errRes.setHeader("Content-Type", "text/plain");
-    errRes.setBody(statusCode.to_string() + statusText);
+    errRes.setBody(std::to_string(statusCode) + statusText);
     return errRes;
 }
 
