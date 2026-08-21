@@ -9,6 +9,7 @@ add_executable(server
     src/HTTPRequest.cpp
     src/Router.cpp
     src/Server.cpp
+    src/Logger.cpp
 )
 
 target_include_directories(server PRIVATE include)
