@@ -1,6 +1,7 @@
 #include "Server.hpp"
 #include "Socket.hpp"
 #include "ClientConnection.hpp"
+#include "Logger.hpp"
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -16,6 +17,9 @@
 
 constexpr std::size_t MAX_HEADER_SIZE = 8 * 1024;
 constexpr std::size_t MAX_BODY_SIZE = 1 * 1024 * 1024;
+
+Logger::Logger serverLogger;
+Logger::Logger clientLogger("/var/log/ClientLogs.log");
 
 void setNonBlocking(int fd)
 {
@@ -37,7 +41,7 @@ HTTPResponse sendErrorResponse(int statusCode, std::string statusText){
     HTTPResponse errRes;
     errRes.setStatus(statusCode, statusText);
     errRes.setHeader("Content-Type", "text/plain");
-    errRes.setBody(std::to_string(statusCode) + statusText);
+    errRes.setBody(std::to_string(statusCode) + " " + statusText);
     return errRes;
 }
 
@@ -257,16 +261,20 @@ void Server::start(){
     serverAddress.sin_addr.s_addr = INADDR_ANY;
 
     if(bind(socket.getFD(), (sockaddr*)&serverAddress, sizeof(serverAddress)) < 0){
-        std::cerr << "Binding failed" << std::endl;
+        serverLogger.log(3, "bind", "/", 500, "Socket Binding Failed");
+        std::cerr << "Socket Binding Failed" << std::endl;
         return;
     }
-    std::cout << "Successfully binded" << std::endl;
+    serverLogger.log(1, "bind", "/", 200, "Socket Successfully Binded");
+    std::cout << "Socket Successfully Binded" << std::endl;
 
     // STEP 3 : start listening 
     if(listen(socket.getFD(), 5) < 0){
+        serverLogger.log(3, "listen", "/", 500, "Failed to listen on port: "+port);
         std::cerr << "Failed to listen!" << std::endl;
         return;
     }
+    serverLogger.log(1, "listen", "/", 200, "Listening on port: "+port);
     std::cout << "Listening on port" << port << "..." << std::endl;
 
     // epoll asks the kernel to notify/wake our process when 
@@ -275,6 +283,7 @@ void Server::start(){
     epoll_fd = epoll_create1(0);
     if (epoll_fd == -1)
     {
+        serverLogger.log(3, "epoll_create", "/", 500, "Failed to create epoll");
         std::cerr << "Failed to create epoll\n";
         return;
     }
@@ -292,6 +301,7 @@ void Server::start(){
             &serverEvent
         ) == -1)
     {
+        serverLogger.log(3, "epoll_ctl", "/", 500, "Failed to add server socket to epoll");
         std::cerr << "Failed to add server socket to epoll\n";
         return;
     }
@@ -309,6 +319,7 @@ void Server::start(){
 
         if (event_count == -1)
         {
+            serverLogger.log(3, "epoll_wait", "/", 500, "epoll_wait failed");
             std::cerr << "epoll_wait failed\n";
             return;
         }
@@ -318,6 +329,7 @@ void Server::start(){
             int fd = events[i].data.fd;
             if (fd == socket.getFD())
             {
+                serverLogger.log(1, "connect", "/", 200, "New connection!");
                 std::cout << "New connection!\n";
 
                 // STEP 4 : create client
@@ -326,10 +338,14 @@ void Server::start(){
 
                 int client_fd = accept(socket.getFD(), (sockaddr*)&clientAddress, &clientAddrSize);
                 if(client_fd < 0){
+                    serverLogger.log(3, "accept", "/", 500, "Client Connection Failed!");
+                    clientLogger.log(3, "accept", "/", 500, "Client Connection Failed!");
                     std::cerr << "Client Connection failed!" << std::endl;
                     continue;
                 }
                 setNonBlocking(client_fd);
+                serverLogger.log(1, "accept", "/", 200, "Client Accepted");
+                clientLogger.log(1, "accept", "/", 200, "Client Accepted");
                 std::cout << "Accepted client: " << client_fd << std::endl;
 
                 // create a client connection object to store the segmented buffer
@@ -348,6 +364,7 @@ void Server::start(){
                         &clientEvent
                     ) == -1)
                 {
+                    serverLogger.log(3, "epoll_ctl", "/", 500, "Failed to add client socket to epoll");
                     std::cerr << "Failed to add client socket to epoll\n";
                     close(client_fd);
                     continue;
