@@ -172,8 +172,9 @@ void Server::handleClient(int client_fd){
             catch(...)
             {
                 std::cerr << "Unexpected Error Ocured:" << "\n";
-                client.writeBuffer += sendErrorResponse(500, "Internal Server Error!").toString()
+                client.writeBuffer += sendErrorResponse(500, "Internal Server Error!").toString();
             }
+        }
         if(!client.writeBuffer.empty()){
             epoll_event event{};
             event.events = EPOLLIN | EPOLLOUT;
