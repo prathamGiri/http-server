@@ -13,7 +13,8 @@ private:
     std::unordered_map<int, std::unique_ptr<ClientConnection>> clients;
     // When the unique_ptr is destroyed, the ClientConnection is automatically destroyed too.
 public:
-    Server(const int port);
+    Server(const int port) : port(port){
+    };
 
     void setRouter(Router router);
 

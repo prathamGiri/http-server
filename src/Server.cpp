@@ -30,7 +30,12 @@ void setNonBlocking(int fd)
     }
 }
 
-Server::Server(const int port) : port(port) {
+HTTPResponse sendErrorResponse(int statusCode, std::string statusText){
+    HTTPResponse errRes;
+    errRes.setStatus(statusCode, statusText);
+    errRes.setHeader("Content-Type", "text/plain");
+    errRes.setBody(statusCode.to_string() + statusText);
+    return errRes;
 }
 
 void Server::setRouter(Router router){
@@ -144,11 +149,31 @@ void Server::handleClient(int client_fd){
             requestSize+=contentLength;
             std::string requestData = client.readBuffer.substr(0, requestSize);
             client.readBuffer.erase(0, requestSize);
-            HTTPRequest request = HTTPRequest::parse(requestData);
 
-            HTTPResponse resObj = router.route(request);
-            client.writeBuffer += resObj.toString();
-        }
+            try
+            {
+                HTTPRequest request = HTTPRequest::parse(requestData);
+                HTTPResponse resObj = router.route(request);
+                client.writeBuffer += resObj.toString();
+            }
+            catch(const std::invalid_argument& e)
+            {
+                std::cerr << "Bad Request (invalid Argument):" << e.what() << "\n";
+                client.writeBuffer += sendErrorResponse(400, "Bad Request!").toString();
+            }
+            catch(const std::out_of_range& e){
+                std::cerr << "Bad Request (out of range):" << e.what() << "\n";
+                client.writeBuffer += sendErrorResponse(400, "Bad Request!").toString();
+            }
+            catch(const std::exception& e){
+                std::cerr << "Internal Server Error:" << e.what() << "\n";
+                client.writeBuffer += sendErrorResponse(500, "Internal Server Error!").toString();
+            }
+            catch(...)
+            {
+                std::cerr << "Unexpected Error Ocured:" << "\n";
+                client.writeBuffer += sendErrorResponse(500, "Internal Server Error!").toString()
+            }
         if(!client.writeBuffer.empty()){
             epoll_event event{};
             event.events = EPOLLIN | EPOLLOUT;
