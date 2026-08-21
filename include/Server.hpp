@@ -17,10 +17,8 @@ public:
     };
 
     void setRouter(Router router);
-
     void start();
-
     void handleClient(int client_fd);
-    
     void handleWrite(int client_fd);
+    void closeClient(int client_fd);
 };

@@ -14,6 +14,9 @@
 #include <string>
 #include <thread>
 
+constexpr std::size_t MAX_HEADER_SIZE = 8 * 1024;
+constexpr std::size_t MAX_BODY_SIZE = 1 * 1024 * 1024;
+
 void setNonBlocking(int fd)
 {
     int flags = fcntl(fd, F_GETFL, 0);
@@ -38,6 +41,18 @@ HTTPResponse sendErrorResponse(int statusCode, std::string statusText){
     return errRes;
 }
 
+void Server::closeClient(int client_fd){
+    epoll_ctl(
+        epoll_fd,
+        EPOLL_CTL_DEL,
+        client_fd,
+        nullptr
+    );
+
+    close(client_fd);
+    clients.erase(client_fd);
+}
+
 void Server::setRouter(Router router){
     this->router = router;
 }
@@ -48,6 +63,10 @@ void Server::handleWrite(int client_fd){
 
     if (client.writeBuffer.empty())
     {
+        if (client.closeAfterWrite)
+        {
+            closeClient(client_fd);
+        }
         return;
     }
     
@@ -66,15 +85,7 @@ void Server::handleWrite(int client_fd){
         }
         std::cerr << "Send failed!" << std::endl;
 
-        epoll_ctl(
-            epoll_fd,
-            EPOLL_CTL_DEL,
-            client_fd,
-            nullptr
-        );
-
-        close(client_fd);
-        clients.erase(client_fd);
+        closeClient(client_fd);
     }else if (bytesSent > 0)
     {
         client.writeBuffer.erase(0,bytesSent);
@@ -128,37 +139,59 @@ void Server::handleClient(int client_fd){
             std::size_t requestEnd = client.readBuffer.find("\r\n\r\n");
             if (requestEnd == std::string::npos)
             {
-                break;
-            }
-            std::size_t requestSize = requestEnd+4;
-            std::string headers = client.readBuffer.substr(0, requestSize);
-            std::size_t contentLength = 0;
-            std::size_t contentPos = headers.find("Content-Length:");
-            if (contentPos != std::string::npos)
-            {
-                contentPos+=std::string("Content-Length:").length();
-                while (contentPos < requestSize && headers[contentPos] == ' ')
+                if (client.readBuffer.size() > MAX_HEADER_SIZE)
                 {
-                    contentPos++;
+                    client.writeBuffer += sendErrorResponse(431, "Request Header Fields Too Large").toString();
+                    client.closeAfterWrite = true;
+                    client.readBuffer.clear();   // stop growing it further
+
+                    epoll_event event{};
+                    event.events = EPOLLOUT;     // no more EPOLLIN — ignore further input
+                    event.data.fd = client_fd;
+                    epoll_ctl(epoll_fd, EPOLL_CTL_MOD, client_fd, &event);
                 }
-                contentLength = std::stoul(headers.substr(contentPos));
-            }
-            if(client.readBuffer.length() - requestSize < contentLength){
                 break;
             }
-            requestSize+=contentLength;
-            std::string requestData = client.readBuffer.substr(0, requestSize);
-            client.readBuffer.erase(0, requestSize);
-
             try
             {
+                std::size_t requestSize = requestEnd+4;
+                std::string headers = client.readBuffer.substr(0, requestSize);
+                std::size_t contentLength = 0;
+                std::size_t contentPos = headers.find("Content-Length:");
+                if (contentPos != std::string::npos)
+                {
+                    contentPos+=std::string("Content-Length:").length();
+                    while (contentPos < requestSize && headers[contentPos] == ' ')
+                    {
+                        contentPos++;
+                    }
+                    contentLength = std::stoul(headers.substr(contentPos));
+                    if(contentLength > MAX_BODY_SIZE){
+                        client.writeBuffer += sendErrorResponse(413, "Payload Too Large").toString();
+                        client.closeAfterWrite = true;
+                        client.readBuffer.clear();   // stop growing it further
+
+                        epoll_event event{};
+                        event.events = EPOLLOUT;     // no more EPOLLIN — ignore further input
+                        event.data.fd = client_fd;
+                        epoll_ctl(epoll_fd, EPOLL_CTL_MOD, client_fd, &event);
+                        break;
+                    }
+                    if(client.readBuffer.length() - requestSize < contentLength){
+                        break;
+                    }
+                    requestSize+=contentLength;
+                }
+                std::string requestData = client.readBuffer.substr(0, requestSize);
+                client.readBuffer.erase(0, requestSize);
+
                 HTTPRequest request = HTTPRequest::parse(requestData);
                 HTTPResponse resObj = router.route(request);
                 client.writeBuffer += resObj.toString();
             }
             catch(const std::invalid_argument& e)
             {
-                std::cerr << "Bad Request (invalid Argument):" << e.what() << "\n";
+                std::cerr << "Bad Request (Invalid Argument):" << e.what() << "\n";
                 client.writeBuffer += sendErrorResponse(400, "Bad Request!").toString();
             }
             catch(const std::out_of_range& e){
@@ -189,22 +222,15 @@ void Server::handleClient(int client_fd){
             {
                 std::cerr << "Failed to modify client event\n";
             }
+        }else if (client.closeAfterWrite)
+        {
+            closeClient(client_fd);
         }
+        
     }else if (bytesReceived == 0)
     {
         std::cout << "Client disconnected\n";
-
-        epoll_ctl(
-            epoll_fd,
-            EPOLL_CTL_DEL,
-            client_fd,
-            nullptr
-        );
-
-        close(client_fd);
-
-        // Remove the ClientConnection from our map
-        clients.erase(client_fd);
+        closeClient(client_fd);
     }else
     {
         if (errno == EAGAIN || errno == EWOULDBLOCK)
@@ -214,17 +240,7 @@ void Server::handleClient(int client_fd){
         else
         {
             std::cerr << "recv failed\n";
-
-            epoll_ctl(
-                epoll_fd,
-                EPOLL_CTL_DEL,
-                client_fd,
-                nullptr
-            );
-
-            close(client_fd);
-            // Remove the ClientConnection from clients map
-            clients.erase(client_fd);
+            closeClient(client_fd);
         }
     }
 }
@@ -251,7 +267,7 @@ void Server::start(){
         std::cerr << "Failed to listen!" << std::endl;
         return;
     }
-    std::cout << "Listening on port 8080..." << std::endl;
+    std::cout << "Listening on port" << port << "..." << std::endl;
 
     // epoll asks the kernel to notify/wake our process when 
     // one of the registered file descriptors becomes ready 
