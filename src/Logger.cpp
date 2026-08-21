@@ -3,9 +3,21 @@
 #include <fstream>
 #include <filesystem>
 #include <chrono>
-#include <format>
+#include <ctime>
+#include <sstream>
+#include <iomanip>
+#include <iostream>
 
 namespace fs = std::filesystem;
+
+std::string formatTime(std::chrono::system_clock::time_point now) {
+    std::time_t t = std::chrono::system_clock::to_time_t(now);
+    std::tm tm = *std::localtime(&t);   // or gmtime for UTC
+
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
+    return oss.str();
+}
 
 Logger::Logger(std::string logFile){
     this->logFile = logFile;
@@ -21,7 +33,7 @@ Logger::Logger(std::string logFile){
     {
         std::cout << "Failed to open the file" << "\n";
     }
-    file << "Log File Created. Logs start:";
+    file << "Log File Created. Logs start:" << "\n";
     file.close();
 
     levelList[1] = "INFO";
@@ -37,7 +49,7 @@ void Logger::log(
     const std::string& message
 ){
     auto now = std::chrono::system_clock::now();
-    std::string time = std::format("{:%Y-%m-%d %H:%M:%S}", now);
+    std::string time = formatTime(now);
 
     std::ofstream file(logFile, std::ios::app);
     if (!file)
