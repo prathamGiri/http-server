@@ -198,23 +198,23 @@ void Server::handleClient(int client_fd){
             }
             catch(const std::invalid_argument& e)
             {
-                clientLogger.log(3, "invalid_argument", "/", 400, "Bad Request (Invalid Argument): "+e.what());
+                clientLogger.log(3, "invalid_argument", "/", 400, std::string("Bad Request (Invalid Argument): ")+e.what());
                 std::cerr << "Bad Request (Invalid Argument):" << e.what() << "\n";
                 client.writeBuffer += sendErrorResponse(400, "Bad Request!").toString();
             }
             catch(const std::out_of_range& e){
-                clientLogger.log(3, "out_of_range", "/", 400, "Bad Request (out of range):" + e.what());
+                clientLogger.log(3, "out_of_range", "/", 400, std::string("Bad Request (out of range):") + e.what());
                 std::cerr << "Bad Request (out of range):" << e.what() << "\n";
                 client.writeBuffer += sendErrorResponse(400, "Bad Request!").toString();
             }
             catch(const std::exception& e){
-                clientLogger.log(3, "exception", "/", 500, "Internal Server Error:" + e.what());
+                clientLogger.log(3, "exception", "/", 500, std::string("Internal Server Error:") + e.what());
                 std::cerr << "Internal Server Error:" << e.what() << "\n";
                 client.writeBuffer += sendErrorResponse(500, "Internal Server Error!").toString();
             }
             catch(...)
             {
-                clientLogger.log(3, "exception", "/", 500, "Unexpected Error Ocured:" + e.what());
+                clientLogger.log(3, "exception", "/", 500, std::string("Unexpected Error Ocured:") + e.what());
                 std::cerr << "Unexpected Error Ocured:" << "\n";
                 client.writeBuffer += sendErrorResponse(500, "Internal Server Error!").toString();
             }
