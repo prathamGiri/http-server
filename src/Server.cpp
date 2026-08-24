@@ -145,6 +145,7 @@ void Server::handleClient(int client_fd){
             {
                 if (client.readBuffer.size() > MAX_HEADER_SIZE)
                 {
+                    clientLogger.log(3, "MAX_HEADER_SIZE", "/", 431, "Request Header Fields Too Large");
                     client.writeBuffer += sendErrorResponse(431, "Request Header Fields Too Large").toString();
                     client.closeAfterWrite = true;
                     client.readBuffer.clear();   // stop growing it further
@@ -171,6 +172,7 @@ void Server::handleClient(int client_fd){
                     }
                     contentLength = std::stoul(headers.substr(contentPos));
                     if(contentLength > MAX_BODY_SIZE){
+                        clientLogger.log(3, "MAX_BODY_SIZE", "/", 413, "Payload Too Large");
                         client.writeBuffer += sendErrorResponse(413, "Payload Too Large").toString();
                         client.closeAfterWrite = true;
                         client.readBuffer.clear();   // stop growing it further
@@ -190,24 +192,29 @@ void Server::handleClient(int client_fd){
                 client.readBuffer.erase(0, requestSize);
 
                 HTTPRequest request = HTTPRequest::parse(requestData);
+                clientLogger.log(1, request.method, request.path, 200, request.body);
                 HTTPResponse resObj = router.route(request);
                 client.writeBuffer += resObj.toString();
             }
             catch(const std::invalid_argument& e)
             {
+                clientLogger.log(3, "invalid_argument", "/", 400, "Bad Request (Invalid Argument): "+e.what());
                 std::cerr << "Bad Request (Invalid Argument):" << e.what() << "\n";
                 client.writeBuffer += sendErrorResponse(400, "Bad Request!").toString();
             }
             catch(const std::out_of_range& e){
+                clientLogger.log(3, "out_of_range", "/", 400, "Bad Request (out of range):" + e.what());
                 std::cerr << "Bad Request (out of range):" << e.what() << "\n";
                 client.writeBuffer += sendErrorResponse(400, "Bad Request!").toString();
             }
             catch(const std::exception& e){
+                clientLogger.log(3, "exception", "/", 500, "Internal Server Error:" + e.what());
                 std::cerr << "Internal Server Error:" << e.what() << "\n";
                 client.writeBuffer += sendErrorResponse(500, "Internal Server Error!").toString();
             }
             catch(...)
             {
+                clientLogger.log(3, "exception", "/", 500, "Unexpected Error Ocured:" + e.what());
                 std::cerr << "Unexpected Error Ocured:" << "\n";
                 client.writeBuffer += sendErrorResponse(500, "Internal Server Error!").toString();
             }
