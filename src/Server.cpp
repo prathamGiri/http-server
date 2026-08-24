@@ -214,7 +214,7 @@ void Server::handleClient(int client_fd){
             }
             catch(...)
             {
-                clientLogger.log(3, "exception", "/", 500, std::string("Unexpected Error Ocured:") + e.what());
+                clientLogger.log(3, "exception", "/", 500, "Unexpected Error Ocured:");
                 std::cerr << "Unexpected Error Ocured:" << "\n";
                 client.writeBuffer += sendErrorResponse(500, "Internal Server Error!").toString();
             }
