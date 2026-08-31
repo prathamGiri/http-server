@@ -21,24 +21,23 @@ std::string formatTime(std::chrono::system_clock::time_point now) {
 
 Logger::Logger(std::string logFile){
     this->logFile = logFile;
+    fs::path path(this->logFile);
+    if(!fs::exists(path)){
+        if (!path.parent_path().empty() && !fs::exists(path.parent_path()))
+        {
+            fs::create_directories(path.parent_path());
+        }
 
-    fs::path path(logFile);
+        std::lock_guard<std::mutex> lock(logMutex);
 
-    if (!fs::exists(path.parent_path()))
-    {
-        fs::create_directories(path.parent_path());
+        std::ofstream file(path, std::ios::app);
+        if (!file)
+        {
+            std::cout << "Failed to open the file" << "\n";
+        }
+        file << "Log File Created. Logs start:" << "\n";
+        file.close();
     }
-
-    std::lock_guard<std::mutex> lock(logMutex);
-
-    std::ofstream file(path, std::ios::app);
-    if (!file)
-    {
-        std::cout << "Failed to open the file" << "\n";
-    }
-    file << "Log File Created. Logs start:" << "\n";
-    file.close();
-
     levelList[1] = "INFO";
     levelList[2] = "WARN";
     levelList[3] = "ERROR";
