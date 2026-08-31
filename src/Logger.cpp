@@ -28,6 +28,9 @@ Logger::Logger(std::string logFile){
     {
         fs::create_directories(path.parent_path());
     }
+
+    std::lock_guard<std::mutex> lock(logMutex);
+
     std::ofstream file(path, std::ios::app);
     if (!file)
     {
@@ -50,6 +53,8 @@ void Logger::log(
 ){
     auto now = std::chrono::system_clock::now();
     std::string time = formatTime(now);
+
+    std::lock_guard<std::mutex> lock(logMutex);
 
     std::ofstream file(logFile, std::ios::app);
     if (!file)
