@@ -1,6 +1,9 @@
 #include "Router.hpp"
 #include "Socket.hpp"
 #include "ClientConnection.hpp"
+#include "ThreadPool.hpp"
+#include "ResultQueue.hpp"
+
 #include <unordered_map>
 #include <memory>
 
@@ -15,6 +18,12 @@ private:
 public:
     Server(const int port) : port(port){
     };
+
+    ThreadPool threadPool{4};
+    ResultQueue resultQueue;
+    int notify_fd;
+
+    void handleWorkerResults();
 
     void setRouter(Router router);
     void start();

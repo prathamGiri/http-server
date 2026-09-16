@@ -2,6 +2,7 @@
 #include "Socket.hpp"
 #include "ClientConnection.hpp"
 #include "Logger.hpp"
+#include "ThreadPool.hpp"
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -10,6 +11,7 @@
 #include <sys/epoll.h>
 #include <fcntl.h>
 #include <cerrno>
+#include <sys/eventfd.h>
 
 #include <iostream>
 #include <string>
@@ -59,6 +61,25 @@ void Server::closeClient(int client_fd){
 
 void Server::setRouter(Router router){
     this->router = router;
+}
+
+void Server::handleWorkerResults() {
+    std::vector<RequestResult> results;
+    resultQueue.drainInto(results);
+
+    for (auto& result : results) {
+        // the client may have disconnected while the worker was busy — check first
+        auto it = clients.find(result.client_fd);
+        if (it == clients.end()) continue;   // gone, discard the result
+
+        auto& client = *it->second;
+        client.writeBuffer += result.responseData;
+
+        epoll_event event{};
+        event.events = EPOLLIN | EPOLLOUT;
+        event.data.fd = result.client_fd;
+        epoll_ctl(epoll_fd, EPOLL_CTL_MOD, result.client_fd, &event);
+    }
 }
 
 void Server::handleWrite(int client_fd){
@@ -157,11 +178,11 @@ void Server::handleClient(int client_fd){
                 }
                 break;
             }
+            std::size_t requestSize = requestEnd+4;
+            std::string headers = client.readBuffer.substr(0, requestSize);
+            std::size_t contentLength = 0;
             try
             {
-                std::size_t requestSize = requestEnd+4;
-                std::string headers = client.readBuffer.substr(0, requestSize);
-                std::size_t contentLength = 0;
                 std::size_t contentPos = headers.find("Content-Length:");
                 if (contentPos != std::string::npos)
                 {
@@ -169,74 +190,102 @@ void Server::handleClient(int client_fd){
                     while (contentPos < requestSize && headers[contentPos] == ' ')
                     {
                         contentPos++;
-                    }
+                    }                
                     contentLength = std::stoul(headers.substr(contentPos));
-                    if(contentLength > MAX_BODY_SIZE){
-                        clientLogger.log(3, "MAX_BODY_SIZE", "/", 413, "Payload Too Large");
-                        client.writeBuffer += sendErrorResponse(413, "Payload Too Large").toString();
-                        client.closeAfterWrite = true;
-                        client.readBuffer.clear();   // stop growing it further
-
-                        epoll_event event{};
-                        event.events = EPOLLOUT;     // no more EPOLLIN — ignore further input
-                        event.data.fd = client_fd;
-                        epoll_ctl(epoll_fd, EPOLL_CTL_MOD, client_fd, &event);
-                        break;
-                    }
-                    if(client.readBuffer.length() - requestSize < contentLength){
-                        break;
-                    }
-                    requestSize+=contentLength;
                 }
-                std::string requestData = client.readBuffer.substr(0, requestSize);
-                client.readBuffer.erase(0, requestSize);
+            }
+            catch(const std::exception& e)
+            {
+                clientLogger.log(3, "invalid_content_length", "/", 400, std::string("Bad Request: ") + e.what());
+                client.writeBuffer += sendErrorResponse(400, "Bad Request!").toString();
+                client.closeAfterWrite = true;
 
-                HTTPRequest request = HTTPRequest::parse(requestData);
-                clientLogger.log(1, request.method, request.path, 200, request.body);
-                HTTPResponse resObj = router.route(request);
-                client.writeBuffer += resObj.toString();
+                epoll_event event{};
+                event.events = EPOLLOUT;
+                event.data.fd = client_fd;
+                epoll_ctl(epoll_fd, EPOLL_CTL_MOD, client_fd, &event);
+                break;
             }
-            catch(const std::invalid_argument& e)
-            {
-                clientLogger.log(3, "invalid_argument", "/", 400, std::string("Bad Request (Invalid Argument): ")+e.what());
-                std::cerr << "Bad Request (Invalid Argument):" << e.what() << "\n";
-                client.writeBuffer += sendErrorResponse(400, "Bad Request!").toString();
+            if(contentLength > MAX_BODY_SIZE){
+                clientLogger.log(3, "MAX_BODY_SIZE", "/", 413, "Payload Too Large");
+                client.writeBuffer += sendErrorResponse(413, "Payload Too Large").toString();
+                client.closeAfterWrite = true;
+                client.readBuffer.clear();   // stop growing it further
+
+                epoll_event event{};
+                event.events = EPOLLOUT;     // no more EPOLLIN — ignore further input
+                event.data.fd = client_fd;
+                epoll_ctl(epoll_fd, EPOLL_CTL_MOD, client_fd, &event);
+                break;
             }
-            catch(const std::out_of_range& e){
-                clientLogger.log(3, "out_of_range", "/", 400, std::string("Bad Request (out of range):") + e.what());
-                std::cerr << "Bad Request (out of range):" << e.what() << "\n";
-                client.writeBuffer += sendErrorResponse(400, "Bad Request!").toString();
+            if(client.readBuffer.length() - requestSize < contentLength){
+                break;
             }
-            catch(const std::exception& e){
-                clientLogger.log(3, "exception", "/", 500, std::string("Internal Server Error:") + e.what());
-                std::cerr << "Internal Server Error:" << e.what() << "\n";
-                client.writeBuffer += sendErrorResponse(500, "Internal Server Error!").toString();
-            }
-            catch(...)
-            {
-                clientLogger.log(3, "exception", "/", 500, "Unexpected Error Ocured:");
-                std::cerr << "Unexpected Error Ocured:" << "\n";
-                client.writeBuffer += sendErrorResponse(500, "Internal Server Error!").toString();
-            }
+            requestSize+=contentLength;
+            std::string requestData = client.readBuffer.substr(0, requestSize);
+            client.readBuffer.erase(0, requestSize);
+
+            threadPool.enqueue([this, requestData, client_fd](){
+                std::string responseStr;
+                try
+                {
+                    HTTPRequest request = HTTPRequest::parse(requestData);
+                    clientLogger.log(1, request.method, request.path, 200, request.body);
+                    HTTPResponse resObj = router.route(request); 
+                    responseStr = resObj.toString();               
+                }
+                catch(const std::invalid_argument& e)
+                {
+                    clientLogger.log(3, "invalid_argument", "/", 400, std::string("Bad Request (Invalid Argument): ")+e.what());
+                    // std::cerr << "Bad Request (Invalid Argument):" << e.what() << "\n";
+                    responseStr = sendErrorResponse(400, "Bad Request!").toString();
+                }
+                catch(const std::out_of_range& e){
+                    clientLogger.log(3, "out_of_range", "/", 400, std::string("Bad Request (out of range):") + e.what());
+                    // std::cerr << "Bad Request (out of range):" << e.what() << "\n";
+                    responseStr = sendErrorResponse(400, "Bad Request!").toString();
+                }
+                catch(const std::exception& e){
+                    clientLogger.log(3, "exception", "/", 500, std::string("Internal Server Error:") + e.what());
+                    // std::cerr << "Internal Server Error:" << e.what() << "\n";
+                    responseStr = sendErrorResponse(500, "Internal Server Error!").toString();
+                }
+                catch(...)
+                {
+                    clientLogger.log(3, "exception", "/", 500, "Unexpected Error Ocured:");
+                    // std::cerr << "Unexpected Error Ocured:" << "\n";
+                    responseStr = sendErrorResponse(500, "Internal Server Error!").toString();
+                }
+
+                resultQueue.push({client_fd, std::move(responseStr)});
+
+                uint64_t  one = 1;
+                write(notify_fd, &one, sizeof(one));
+            });
+            // client.writeBuffer += resObj.toString();
         }
-        if(!client.writeBuffer.empty()){
-            epoll_event event{};
-            event.events = EPOLLIN | EPOLLOUT;
-            event.data.fd = client_fd;
+        // if(!client.writeBuffer.empty()){
+        //     epoll_event event{};
+        //     event.events = EPOLLIN | EPOLLOUT;
+        //     event.data.fd = client_fd;
 
-            if (epoll_ctl(
-                    epoll_fd,
-                    EPOLL_CTL_MOD,
-                    client_fd,
-                    &event
-                ) == -1)
-            {
-                std::cerr << "Failed to modify client event\n";
-            }
-        }else if (client.closeAfterWrite)
+        //     if (epoll_ctl(
+        //             epoll_fd,
+        //             EPOLL_CTL_MOD,
+        //             client_fd,
+        //             &event
+        //         ) == -1)
+        //     {
+        //         std::cerr << "Failed to modify client event\n";
+        //     }
+        // }else 
+        if (client.closeAfterWrite)
         {
             closeClient(client_fd);
-        }
+        } // if client sends multiple requests, one request is with worker, 
+        // second request is flagged as content-length-error, this will set
+        // the closeAfterWrite flag to true and close client even before the 
+        // first worker returns result.
         
     }else if (bytesReceived == 0)
     {
@@ -313,6 +362,27 @@ void Server::start(){
         return;
     }
 
+    notify_fd = eventfd(0, EFD_NONBLOCK);
+    if (notify_fd == -1) {
+        std::cerr << "Failed to create eventfd\n";
+        return;
+    }
+    epoll_event notifyEvent{};
+    notifyEvent.events = EPOLLIN;
+    notifyEvent.data.fd = notify_fd;
+    // register the listining client
+    if (epoll_ctl(
+            epoll_fd,
+            EPOLL_CTL_ADD,
+            notify_fd,
+            &notifyEvent
+        ) == -1)
+    {
+        serverLogger.log(3, "epoll_ctl", "/", 500, "Failed to add result notify fd to epoll");
+        std::cerr << "Failed to add result notify fd to epoll\n";
+        return;
+    }
+
     epoll_event events[10];
 
     while(true){
@@ -376,7 +446,14 @@ void Server::start(){
                     close(client_fd);
                     continue;
                 }
-            }else
+            }
+            else if (fd == notify_fd)
+            {
+                uint64_t val;
+                read(notify_fd, &val, sizeof(val));
+                handleWorkerResults();
+            }
+            else
             {
                 if (events[i].events & EPOLLIN)
                 {

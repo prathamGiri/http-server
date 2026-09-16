@@ -13,6 +13,7 @@ add_executable(server
     src/Router.cpp
     src/Server.cpp
     src/Logger.cpp
+    src/ThreadPool.cpp
 )
 
 target_include_directories(server PRIVATE include)
