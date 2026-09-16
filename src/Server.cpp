@@ -3,6 +3,7 @@
 #include "ClientConnection.hpp"
 #include "Logger.hpp"
 #include "ThreadPool.hpp"
+#include "ResultQueue.hpp"
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -21,7 +22,7 @@ constexpr std::size_t MAX_HEADER_SIZE = 8 * 1024;
 constexpr std::size_t MAX_BODY_SIZE = 1 * 1024 * 1024;
 
 Logger serverLogger;
-Logger clientLogger("/var/log/ClientLogs.log");
+Logger clientLogger("/var/log/http-server/ClientLogs.log");
 
 void setNonBlocking(int fd)
 {
@@ -64,7 +65,7 @@ void Server::setRouter(Router router){
 }
 
 void Server::handleWorkerResults() {
-    std::vector<RequestResult> results;
+    std::vector<ResultItem> results;
     resultQueue.drainInto(results);
 
     for (auto& result : results) {
@@ -73,7 +74,7 @@ void Server::handleWorkerResults() {
         if (it == clients.end()) continue;   // gone, discard the result
 
         auto& client = *it->second;
-        client.writeBuffer += result.responseData;
+        client.writeBuffer += result.responseString;
 
         epoll_event event{};
         event.events = EPOLLIN | EPOLLOUT;

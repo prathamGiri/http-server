@@ -11,7 +11,7 @@ class Logger{
         std::unordered_map<int, std::string> levelList;
         mutable std::mutex logMutex;
 
-        Logger(std::string logFile = "/var/log/ServerLogs.log");
+        Logger(std::string logFile = "/var/log/http-server/ServerLogs.log");
         void log(
             int level, 
             const std::string& method, 
