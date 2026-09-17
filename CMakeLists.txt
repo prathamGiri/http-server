@@ -14,6 +14,7 @@ add_executable(server
     src/Server.cpp
     src/Logger.cpp
     src/ThreadPool.cpp
+    src/StaticFileHandler.cpp
 )
 
 target_include_directories(server PRIVATE include)

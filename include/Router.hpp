@@ -15,5 +15,6 @@ private:
 public:
     void get(const std::string& path , Handler handler);
     void post(const std::string& path , Handler handler);
-    HTTPResponse route(const HTTPRequest& request);
+    // HTTPResponse route(const HTTPRequest& request);
+    bool tryRoute(const HTTPRequest& request, HTTPResponse& response);
 };

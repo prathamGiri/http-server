@@ -17,16 +17,26 @@ void Router::post(const std::string& path , Handler handler){
     getRoutes[createKey("POST", path)] = handler;
 }
 
-HTTPResponse Router::route(const HTTPRequest& request){
+// HTTPResponse Router::route(const HTTPRequest& request){
+//     auto it = getRoutes.find(createKey(request.method, request.path));
+//     if(it != getRoutes.end()){
+//         return it->second(request);
+//     }
+    
+//     HTTPResponse response;
+//     response.setStatus(404, "Not Found!");
+//     response.setHeader("Content-Type", "text/plain");
+//     response.setBody("404 Not Found!");
+
+//     return response;
+// }
+
+bool Router::tryRoute(const HTTPRequest& request, HTTPResponse& response){
     auto it = getRoutes.find(createKey(request.method, request.path));
     if(it != getRoutes.end()){
-        return it->second(request);
+        response = std::move(it->second(request));
+        return true;
+    }else{
+        return false;
     }
-    
-    HTTPResponse response;
-    response.setStatus(404, "Not Found!");
-    response.setHeader("Content-Type", "text/plain");
-    response.setBody("404 Not Found!");
-
-    return response;
 }

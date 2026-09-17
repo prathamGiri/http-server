@@ -232,8 +232,22 @@ void Server::handleClient(int client_fd){
                 {
                     HTTPRequest request = HTTPRequest::parse(requestData);
                     clientLogger.log(1, request.method, request.path, 200, request.body);
-                    HTTPResponse resObj = router.route(request); 
-                    responseStr = resObj.toString();               
+                    HTTPResponse resObj;
+
+                    bool handled = router.tryRoute(request, resObj); 
+
+                    if (!handled && request.method == "GET")
+                    {
+                        resObj = staticFileHandler.serve(request);
+                        handled = true;
+                    }
+                    if (handled)
+                    {
+                        responseStr = resObj.toString();
+                    }else
+                    {
+                        responseStr = sendErrorResponse(404, "Not Found").toString();
+                    }             
                 }
                 catch(const std::invalid_argument& e)
                 {

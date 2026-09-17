@@ -3,6 +3,7 @@
 #include "ClientConnection.hpp"
 #include "ThreadPool.hpp"
 #include "ResultQueue.hpp"
+#include "StaticFileHandler.hpp"
 
 #include <unordered_map>
 #include <memory>
@@ -15,6 +16,8 @@ private:
     Router router;
     std::unordered_map<int, std::unique_ptr<ClientConnection>> clients;
     // When the unique_ptr is destroyed, the ClientConnection is automatically destroyed too.
+
+    StaticFileHandler staticFileHandler{"../static"};
 public:
     Server(const int port) : port(port){
     };
