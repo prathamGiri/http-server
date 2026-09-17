@@ -39,28 +39,28 @@ See [Roadmap](#roadmap) below — these are the next things being built.
 
 ```
 ┌─────────────┐
-│   main.cpp   │  registers routes, starts the server
+│   main.cpp  │  registers routes, starts the server
 └──────┬──────┘
        │
-┌──────▼───────────────────────────────────────────────┐
-│                        Server                          │
-│              (epoll loop — I/O thread only)             │
+┌──────▼───────────────────────────────────────────────────┐
+│                        Server                            │
+│              (epoll loop — I/O thread only)              │
 │                                                          │
-│  accept() ── recv()/send() ── frame requests            │
+│  accept() ── recv()/send() ── frame requests             │
 │       │                              │                   │
 │       │                    enqueue(requestData, fd)      │
 │       │                              ▼                   │
 │       │                    ┌──────────────────┐          │
-│       │                    │    ThreadPool      │          │
-│       │                    │  parse → route →   │          │
-│       │                    │  static fallback    │          │
-│       │                    └────────┬──────────┘          │
-│       │                             │ push result          │
-│       │                    ┌────────▼──────────┐          │
-│       └── eventfd wakeup ◀─│    ResultQueue      │          │
-│              │             └────────────────────┘          │
-│              ▼                                             │
-│     writeBuffer += response, enable EPOLLOUT                │
+│       │                    │    ThreadPool    │          │
+│       │                    │  parse → route → │          │
+│       │                    │  static fallback │          │
+│       │                    └────────┬─────────┘          │
+│       │                             │ push result        │
+│       │                    ┌────────▼──────────┐         │
+│       └── eventfd wakeup ◀─│    ResultQueue   │         │
+│              │             └───────────────────┘         │
+│              ▼                                           │
+│     writeBuffer += response, enable EPOLLOUT             │
 └──────────────────────────────────────────────────────────┘
 ```
 
