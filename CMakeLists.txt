@@ -7,14 +7,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(server
     src/main.cpp
-    src/Socket.cpp
-    src/HTTPResponse.cpp
-    src/HTTPRequest.cpp
-    src/Router.cpp
-    src/Server.cpp
-    src/Logger.cpp
-    src/ThreadPool.cpp
-    src/StaticFileHandler.cpp
+    src/net/Socket.cpp
+    src/core/HTTPResponse.cpp
+    src/core/HTTPRequest.cpp
+    src/routing/Router.cpp
+    src/server/Server.cpp
+    src/server/ServerConfig.cpp
+    src/logging/Logger.cpp
+    src/concurrency/ThreadPool.cpp
+    src/routing/StaticFileHandler.cpp
     src/net/EpollEventLoop.cpp
 )
 

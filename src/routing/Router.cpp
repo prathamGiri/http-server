@@ -1,6 +1,4 @@
-#include "HTTPResponse.hpp"
-#include "HTTPRequest.hpp"
-#include "Router.hpp"
+#include "routing/Router.hpp"
 
 #include <string>
 

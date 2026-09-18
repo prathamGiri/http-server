@@ -4,8 +4,8 @@
 #include <functional>
 #include <unordered_map>
 
-#include "HTTPResponse.hpp"
-#include "HTTPRequest.hpp"
+#include "core/HTTPResponse.hpp"
+#include "core/HTTPRequest.hpp"
 
 class Router{
 public:

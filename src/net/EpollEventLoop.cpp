@@ -1,6 +1,7 @@
 #include "net/EpollEventLoop.hpp"
 
 #include <iostream>
+#include <vector>
 
 std::uint32_t EpollEventLoop::toEpollFlags(IOEventMode mode){
     switch (mode)
@@ -10,6 +11,10 @@ std::uint32_t EpollEventLoop::toEpollFlags(IOEventMode mode){
         case IOEventMode::ReadWrite: return EPOLLIN | EPOLLOUT;
     }
     return EPOLLIN;
+}
+EpollEventLoop::EpollEventLoop(int maxEvents){
+    this->maxEvents_=maxEvents;
+    this->events.resize(maxEvents);
 }
 
 int EpollEventLoop::init(){
@@ -64,8 +69,8 @@ void EpollEventLoop::changeFdMode(int fd, IOEventMode mode){
 int EpollEventLoop::getEventCount(){
     int event_count = epoll_wait(
         this->epoll_fd,
-        this->events,
-        10,
+        events.data(),
+        this->maxEvents_,
         -1
     );
 
@@ -77,6 +82,20 @@ int EpollEventLoop::getEventCount(){
     return event_count;
 }
 
-epoll_event EpollEventLoop::getEvents(int i){
-    return this->events[i];
+std::vector<IOEvent> EpollEventLoop::getEvents(){
+    int eventCount = getEventCount();
+    if (eventCount == -1)
+    {
+        throw std::runtime_error("epoll_wait failed");
+    }
+    std::vector<IOEvent> eventsList;
+    for (int i = 0; i < eventCount; i++)
+    {
+        IOEvent event;
+        event.fd = events[i].data.fd;
+        event.readable = events[i].events & EPOLLIN;
+        event.writable = events[i].events & EPOLLOUT;
+        eventsList.push_back(event);
+    }
+    return eventsList;
 }
