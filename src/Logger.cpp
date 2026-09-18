@@ -1,4 +1,4 @@
-#include "Logger.hpp"
+#include "logger/Logger.hpp"
 
 #include <fstream>
 #include <filesystem>
@@ -38,13 +38,13 @@ Logger::Logger(std::string logFile){
         file << "Log File Created. Logs start:" << "\n";
         file.close();
     }
-    levelList[1] = "INFO";
-    levelList[2] = "WARN";
-    levelList[3] = "ERROR";
+    levelList[LogLevels::INFO] = "INFO";
+    levelList[LogLevels::WARN] = "WARN";
+    levelList[LogLevels::ERROR] = "ERROR";
 }
 
 void Logger::log(
-    int level, 
+    LogLevels level, 
     const std::string& method, 
     const std::string& path, 
     int statusCode, 

@@ -1,7 +1,7 @@
 #include "HTTPRequest.hpp"
 #include "HTTPResponse.hpp"
 #include "Router.hpp"
-#include "Server.hpp"
+#include "server/Server.hpp"
 
 int main(){
     // Router Defined here

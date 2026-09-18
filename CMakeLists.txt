@@ -15,6 +15,7 @@ add_executable(server
     src/Logger.cpp
     src/ThreadPool.cpp
     src/StaticFileHandler.cpp
+    src/net/EpollEventLoop.cpp
 )
 
 target_include_directories(server PRIVATE include)

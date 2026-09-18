@@ -1,15 +1,10 @@
-#include "Server.hpp"
-#include "Socket.hpp"
-#include "ClientConnection.hpp"
-#include "Logger.hpp"
-#include "ThreadPool.hpp"
-#include "ResultQueue.hpp"
+#include "server/Server.hpp"
 
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-#include <sys/epoll.h>
+
 #include <fcntl.h>
 #include <cerrno>
 #include <sys/eventfd.h>
@@ -21,8 +16,8 @@
 constexpr std::size_t MAX_HEADER_SIZE = 8 * 1024;
 constexpr std::size_t MAX_BODY_SIZE = 1 * 1024 * 1024;
 
-Logger serverLogger;
-Logger clientLogger("/var/log/http-server/ClientLogs.log");
+// Logger serverLogger;
+// Logger clientLogger("/var/log/http-server/ClientLogs.log");
 
 void setNonBlocking(int fd)
 {
@@ -49,12 +44,7 @@ HTTPResponse sendErrorResponse(int statusCode, std::string statusText){
 }
 
 void Server::closeClient(int client_fd){
-    epoll_ctl(
-        epoll_fd,
-        EPOLL_CTL_DEL,
-        client_fd,
-        nullptr
-    );
+    epollInstance.removeFD(client_fd);
 
     close(client_fd);
     clients.erase(client_fd);
@@ -76,10 +66,11 @@ void Server::handleWorkerResults() {
         auto& client = *it->second;
         client.writeBuffer += result.responseString;
 
-        epoll_event event{};
-        event.events = EPOLLIN | EPOLLOUT;
-        event.data.fd = result.client_fd;
-        epoll_ctl(epoll_fd, EPOLL_CTL_MOD, result.client_fd, &event);
+        // epoll_event event{};
+        // event.events = EPOLLIN | EPOLLOUT;
+        // event.data.fd = result.client_fd;
+        // epoll_ctl(epoll_fd, EPOLL_CTL_MOD, result.client_fd, &event);
+        epollInstance.changeFdMode(result.client_fd, IOEventMode::ReadWrite);
     }
 }
 
@@ -117,18 +108,19 @@ void Server::handleWrite(int client_fd){
         client.writeBuffer.erase(0,bytesSent);
         if (client.writeBuffer.empty())
         {
-            epoll_event event{};
-            event.events = EPOLLIN;
-            event.data.fd = client_fd;
+            // epoll_event event{};
+            // event.events = EPOLLIN;
+            // event.data.fd = client_fd;
 
-            if(epoll_ctl(
-                epoll_fd,
-                EPOLL_CTL_MOD,
-                client_fd,
-                &event
-            )){
-                std::cerr << "Failed to disable EPOLLOUT\n";
-            };
+            // if(epoll_ctl(
+            //     epoll_fd,
+            //     EPOLL_CTL_MOD,
+            //     client_fd,
+            //     &event
+            // )){
+            //     std::cerr << "Failed to disable EPOLLOUT\n";
+            // };
+            epollInstance.changeFdMode(client_fd, IOEventMode::Read);
         }
         
     }
@@ -167,15 +159,16 @@ void Server::handleClient(int client_fd){
             {
                 if (client.readBuffer.size() > MAX_HEADER_SIZE)
                 {
-                    clientLogger.log(3, "MAX_HEADER_SIZE", "/", 431, "Request Header Fields Too Large");
+                    clientLogger.log(LogLevels::ERROR, "MAX_HEADER_SIZE", "/", 431, "Request Header Fields Too Large");
                     client.writeBuffer += sendErrorResponse(431, "Request Header Fields Too Large").toString();
                     client.closeAfterWrite = true;
                     client.readBuffer.clear();   // stop growing it further
 
-                    epoll_event event{};
-                    event.events = EPOLLOUT;     // no more EPOLLIN — ignore further input
-                    event.data.fd = client_fd;
-                    epoll_ctl(epoll_fd, EPOLL_CTL_MOD, client_fd, &event);
+                    // epoll_event event{};
+                    // event.events = EPOLLOUT;     // no more EPOLLIN — ignore further input
+                    // event.data.fd = client_fd;
+                    // epoll_ctl(epoll_fd, EPOLL_CTL_MOD, client_fd, &event);
+                    epollInstance.changeFdMode(client_fd, IOEventMode::Write);
                 }
                 break;
             }
@@ -197,26 +190,28 @@ void Server::handleClient(int client_fd){
             }
             catch(const std::exception& e)
             {
-                clientLogger.log(3, "invalid_content_length", "/", 400, std::string("Bad Request: ") + e.what());
+                clientLogger.log(LogLevels::ERROR, "invalid_content_length", "/", 400, std::string("Bad Request: ") + e.what());
                 client.writeBuffer += sendErrorResponse(400, "Bad Request!").toString();
                 client.closeAfterWrite = true;
 
-                epoll_event event{};
-                event.events = EPOLLOUT;
-                event.data.fd = client_fd;
-                epoll_ctl(epoll_fd, EPOLL_CTL_MOD, client_fd, &event);
+                // epoll_event event{};
+                // event.events = EPOLLOUT;
+                // event.data.fd = client_fd;
+                // epoll_ctl(epoll_fd, EPOLL_CTL_MOD, client_fd, &event);
+                epollInstance.changeFdMode(client_fd, IOEventMode::Write);
                 break;
             }
             if(contentLength > MAX_BODY_SIZE){
-                clientLogger.log(3, "MAX_BODY_SIZE", "/", 413, "Payload Too Large");
+                clientLogger.log(LogLevels::ERROR, "MAX_BODY_SIZE", "/", 413, "Payload Too Large");
                 client.writeBuffer += sendErrorResponse(413, "Payload Too Large").toString();
                 client.closeAfterWrite = true;
                 client.readBuffer.clear();   // stop growing it further
 
-                epoll_event event{};
-                event.events = EPOLLOUT;     // no more EPOLLIN — ignore further input
-                event.data.fd = client_fd;
-                epoll_ctl(epoll_fd, EPOLL_CTL_MOD, client_fd, &event);
+                // epoll_event event{};
+                // event.events = EPOLLOUT;     // no more EPOLLIN — ignore further input
+                // event.data.fd = client_fd;
+                // epoll_ctl(epoll_fd, EPOLL_CTL_MOD, client_fd, &event);
+                epollInstance.changeFdMode(client_fd, IOEventMode::Write);
                 break;
             }
             if(client.readBuffer.length() - requestSize < contentLength){
@@ -231,7 +226,7 @@ void Server::handleClient(int client_fd){
                 try
                 {
                     HTTPRequest request = HTTPRequest::parse(requestData);
-                    clientLogger.log(1, request.method, request.path, 200, request.body);
+                    clientLogger.log(LogLevels::INFO, request.method, request.path, 200, request.body);
                     HTTPResponse resObj;
 
                     bool handled = router.tryRoute(request, resObj); 
@@ -251,23 +246,23 @@ void Server::handleClient(int client_fd){
                 }
                 catch(const std::invalid_argument& e)
                 {
-                    clientLogger.log(3, "invalid_argument", "/", 400, std::string("Bad Request (Invalid Argument): ")+e.what());
+                    clientLogger.log(LogLevels::ERROR, "invalid_argument", "/", 400, std::string("Bad Request (Invalid Argument): ")+e.what());
                     // std::cerr << "Bad Request (Invalid Argument):" << e.what() << "\n";
                     responseStr = sendErrorResponse(400, "Bad Request!").toString();
                 }
                 catch(const std::out_of_range& e){
-                    clientLogger.log(3, "out_of_range", "/", 400, std::string("Bad Request (out of range):") + e.what());
+                    clientLogger.log(LogLevels::ERROR, "out_of_range", "/", 400, std::string("Bad Request (out of range):") + e.what());
                     // std::cerr << "Bad Request (out of range):" << e.what() << "\n";
                     responseStr = sendErrorResponse(400, "Bad Request!").toString();
                 }
                 catch(const std::exception& e){
-                    clientLogger.log(3, "exception", "/", 500, std::string("Internal Server Error:") + e.what());
+                    clientLogger.log(LogLevels::ERROR, "exception", "/", 500, std::string("Internal Server Error:") + e.what());
                     // std::cerr << "Internal Server Error:" << e.what() << "\n";
                     responseStr = sendErrorResponse(500, "Internal Server Error!").toString();
                 }
                 catch(...)
                 {
-                    clientLogger.log(3, "exception", "/", 500, "Unexpected Error Ocured:");
+                    clientLogger.log(LogLevels::ERROR, "exception", "/", 500, "Unexpected Error Ocured:");
                     // std::cerr << "Unexpected Error Ocured:" << "\n";
                     responseStr = sendErrorResponse(500, "Internal Server Error!").toString();
                 }
@@ -321,59 +316,56 @@ void Server::handleClient(int client_fd){
 }
 
 void Server::start(){
-    // STEP 1 : Create the server socket
     Socket socket;
-    setNonBlocking(socket.getFD());
+    int listenfd = socket.getFD();
+    setNonBlocking(listenfd);
 
-    // STEP 2 : bind the socket to a port
     sockaddr_in serverAddress;
     serverAddress.sin_family = AF_INET;
     serverAddress.sin_port = htons(port);
     serverAddress.sin_addr.s_addr = INADDR_ANY;
 
-    if(bind(socket.getFD(), (sockaddr*)&serverAddress, sizeof(serverAddress)) < 0){
-        serverLogger.log(3, "bind", "/", 500, "Socket Binding Failed");
-        std::cerr << "Socket Binding Failed" << std::endl;
+    if(bind(listenfd, (sockaddr*)&serverAddress, sizeof(serverAddress)) < 0){
+        serverLogger.log(LogLevels::ERROR, "bind", "/", 500, "Socket Binding Failed");
         return;
     }
-    serverLogger.log(1, "bind", "/", 200, "Socket Successfully Binded");
-    std::cout << "Socket Successfully Binded" << std::endl;
+    serverLogger.log(LogLevels::INFO, "bind", "/", 200, "Socket Successfully Binded");
 
-    // STEP 3 : start listening 
-    if(listen(socket.getFD(), 5) < 0){
-        serverLogger.log(3, "listen", "/", 500, "Failed to listen on port: "+ std::to_string(port));
-        std::cerr << "Failed to listen!" << std::endl;
+    if(listen(listenfd, 5) < 0){
+        serverLogger.log(LogLevels::ERROR, "listen", "/", 500, "Failed to listen on port: "+ std::to_string(port));
         return;
     }
-    serverLogger.log(1, "listen", "/", 200, "Listening on port: "+std::to_string(port));
-    std::cout << "Listening on port" << port << "..." << std::endl;
+    serverLogger.log(LogLevels::INFO, "listen", "/", 200, "Listening on port: "+std::to_string(port));
 
-    // epoll asks the kernel to notify/wake our process when 
-    // one of the registered file descriptors becomes ready 
-    // for an event, such as having data available to read.
-    epoll_fd = epoll_create1(0);
-    if (epoll_fd == -1)
-    {
-        serverLogger.log(3, "epoll_create", "/", 500, "Failed to create epoll");
-        std::cerr << "Failed to create epoll\n";
+    // epoll_fd = epoll_create1(0);
+    // if (epoll_fd == -1)
+    // {
+    //     serverLogger.log(3, "epoll_create", "/", 500, "Failed to create epoll");
+    //     std::cerr << "Failed to create epoll\n";
+    //     return;
+    // }
+    if(epollInstance.init()) {
+        serverLogger.log(LogLevels::ERROR, "epoll_create", "/", 500, "Failed to create epoll");
         return;
     }
 
-    epoll_event serverEvent{};
+    // epoll_event serverEvent{};
+    // serverEvent.events = EPOLLIN;
+    // serverEvent.data.fd = socket.getFD();
 
-    serverEvent.events = EPOLLIN;
-    serverEvent.data.fd = socket.getFD();
-
-    // register the listining client
-    if (epoll_ctl(
-            epoll_fd,
-            EPOLL_CTL_ADD,
-            socket.getFD(),
-            &serverEvent
-        ) == -1)
-    {
-        serverLogger.log(3, "epoll_ctl", "/", 500, "Failed to add server socket to epoll");
-        std::cerr << "Failed to add server socket to epoll\n";
+    // if (epoll_ctl(
+    //         epoll_fd,
+    //         EPOLL_CTL_ADD,
+    //         socket.getFD(),
+    //         &serverEvent
+    //     ) == -1)
+    // {
+    //     serverLogger.log(3, "epoll_ctl", "/", 500, "Failed to add server socket to epoll");
+    //     std::cerr << "Failed to add server socket to epoll\n";
+    //     return;
+    // }
+    if(epollInstance.registerFD(listenfd, IOEventMode::Read)) {
+        serverLogger.log(LogLevels::ERROR, "epoll_ctl", "/", 500, "Failed to add socket fd to epoll");
         return;
     }
 
@@ -382,82 +374,96 @@ void Server::start(){
         std::cerr << "Failed to create eventfd\n";
         return;
     }
-    epoll_event notifyEvent{};
-    notifyEvent.events = EPOLLIN;
-    notifyEvent.data.fd = notify_fd;
-    // register the listining client
-    if (epoll_ctl(
-            epoll_fd,
-            EPOLL_CTL_ADD,
-            notify_fd,
-            &notifyEvent
-        ) == -1)
-    {
-        serverLogger.log(3, "epoll_ctl", "/", 500, "Failed to add result notify fd to epoll");
-        std::cerr << "Failed to add result notify fd to epoll\n";
+    if(epollInstance.registerFD(notify_fd, IOEventMode::Read)) {
+        serverLogger.log(LogLevels::ERROR, "epoll_ctl", "/", 500, "Failed to add notify fd to epoll");
         return;
-    }
+    };
+    // epoll_event notifyEvent{};
+    // notifyEvent.events = EPOLLIN;
+    // notifyEvent.data.fd = notify_fd;
+    // register the listining client
+    // if (epoll_ctl(
+    //         epoll_fd,
+    //         EPOLL_CTL_ADD,
+    //         notify_fd,
+    //         &notifyEvent
+    //     ) == -1)
+    // {
+    //     serverLogger.log(3, "epoll_ctl", "/", 500, "Failed to add result notify fd to epoll");
+    //     std::cerr << "Failed to add result notify fd to epoll\n";
+    //     return;
+    // }
 
-    epoll_event events[10];
+    // epoll_event events[10];
 
     while(true){
         // wait indefinitely(-1) until something happens
-        int event_count = epoll_wait(
-            epoll_fd,
-            events,
-            10,
-            -1
-        );
+        // int event_count = epoll_wait(
+        //     epoll_fd,
+        //     events,
+        //     10,
+        //     -1
+        // );
 
-        if (event_count == -1)
-        {
-            serverLogger.log(3, "epoll_wait", "/", 500, "epoll_wait failed");
-            std::cerr << "epoll_wait failed\n";
+        // if (event_count == -1)
+        // {
+        //     serverLogger.log(3, "epoll_wait", "/", 500, "epoll_wait failed");
+        //     std::cerr << "epoll_wait failed\n";
+        //     return;
+        // }
+        int event_count = epollInstance.getEventCount();
+        if (event_count < 0) {
+            serverLogger.log(LogLevels::ERROR, "epoll_wait", "/", 500, "epoll_wait failed");
             return;
         }
 
         for (int i = 0; i < event_count; i++)
         {   
-            int fd = events[i].data.fd;
-            if (fd == socket.getFD())
+            // int fd = events[i].data.fd;
+            int fd = epollInstance.getEvents(i).data.fd;
+            if (fd == listenfd)
             {
-                serverLogger.log(1, "connect", "/", 200, "New connection!");
-                std::cout << "New connection!\n";
+                serverLogger.log(LogLevels::INFO, "connect", "/", 200, "New connection!");
 
                 // STEP 4 : create client
                 sockaddr_in clientAddress;
                 socklen_t clientAddrSize = sizeof(clientAddress);
 
-                int client_fd = accept(socket.getFD(), (sockaddr*)&clientAddress, &clientAddrSize);
+                int client_fd = accept(listenfd, (sockaddr*)&clientAddress, &clientAddrSize);
                 if(client_fd < 0){
-                    serverLogger.log(3, "accept", "/", 500, "Client Connection Failed!");
-                    clientLogger.log(3, "accept", "/", 500, "Client Connection Failed!");
+                    serverLogger.log(LogLevels::ERROR, "accept", "/", 500, "Client Connection Failed!");
+                    clientLogger.log(LogLevels::ERROR, "accept", "/", 500, "Client Connection Failed!");
                     std::cerr << "Client Connection failed!" << std::endl;
                     continue;
                 }
                 setNonBlocking(client_fd);
-                serverLogger.log(1, "accept", "/", 200, "Client Accepted");
-                clientLogger.log(1, "accept", "/", 200, "Client Accepted");
+                serverLogger.log(LogLevels::INFO, "accept", "/", 200, "Client Accepted");
+                clientLogger.log(LogLevels::INFO, "accept", "/", 200, "Client Accepted");
                 std::cout << "Accepted client: " << client_fd << std::endl;
 
                 // create a client connection object to store the segmented buffer
                 auto client = std::make_unique<ClientConnection>(client_fd);
                 clients[client_fd] = std::move(client); // to transfer the ownership of a unique pointer, use move
                 
-                epoll_event clientEvent{};
+                // epoll_event clientEvent{};
 
-                clientEvent.events = EPOLLIN;
-                clientEvent.data.fd = client_fd;
+                // clientEvent.events = EPOLLIN;
+                // clientEvent.data.fd = client_fd;
 
-                if (epoll_ctl(
-                        epoll_fd,
-                        EPOLL_CTL_ADD,
-                        client_fd,
-                        &clientEvent
-                    ) == -1)
-                {
-                    serverLogger.log(3, "epoll_ctl", "/", 500, "Failed to add client socket to epoll");
-                    std::cerr << "Failed to add client socket to epoll\n";
+                // if (epoll_ctl(
+                //         epoll_fd,
+                //         EPOLL_CTL_ADD,
+                //         client_fd,
+                //         &clientEvent
+                //     ) == -1)
+                // {
+                //     serverLogger.log(3, "epoll_ctl", "/", 500, "Failed to add client socket to epoll");
+                //     std::cerr << "Failed to add client socket to epoll\n";
+                //     close(client_fd);
+                //     continue;
+                // }
+                if(epollInstance.registerFD(client_fd, IOEventMode::Read)) {
+                    serverLogger.log(LogLevels::ERROR, "epoll_ctl", "/", 500, "Failed to add client fd to epoll");
                     close(client_fd);
                     continue;
                 }
@@ -470,11 +476,11 @@ void Server::start(){
             }
             else
             {
-                if (events[i].events & EPOLLIN)
+                if (epollInstance.getEvents(i).events & EPOLLIN)
                 {
                     handleClient(fd);
                 }
-                if (events[i].events & EPOLLOUT)
+                if (epollInstance.getEvents(i).events & EPOLLOUT)
                 {
                     handleWrite(fd);
                 }
