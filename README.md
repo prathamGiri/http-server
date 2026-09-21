@@ -39,29 +39,29 @@ See [Roadmap](#roadmap) below — these are the next things being built.
 
 ```
 ┌─────────────┐
-│   main.cpp   │  registers routes, starts the server
+│   main.cpp  │  registers routes, starts the server
 └──────┬──────┘
        │
 ┌──────▼───────────────────────────────────────────────┐
-│                        Server                          │
-│              (epoll loop — I/O thread only)             │
-│                                                          │
-│  accept() ── recv()/send() ── frame requests            │
-│       │                              │                   │
-│       │                    enqueue(requestData, fd)      │
-│       │                              ▼                   │
-│       │                    ┌──────────────────┐          │
-│       │                    │    ThreadPool      │          │
-│       │                    │  parse → route →   │          │
-│       │                    │  static fallback    │          │
-│       │                    └────────┬──────────┘          │
-│       │                             │ push result          │
-│       │                    ┌────────▼──────────┐          │
-│       └── eventfd wakeup ◀─│    ResultQueue      │          │
-│              │             └────────────────────┘          │
-│              ▼                                             │
-│     writeBuffer += response, enable EPOLLOUT                │
-└──────────────────────────────────────────────────────────┘
+│                        Server                        │
+│              (epoll loop — I/O thread only)          │
+│                                                      │
+│  accept() ── recv()/send() ── frame requests         │
+│       │                              │               │
+│       │                    enqueue(requestData, fd)  │
+│       │                              ▼               │
+│       │                    ┌──────────────────┐      │
+│       │                    │    ThreadPool    │      │
+│       │                    │  parse → route → │      │
+│       │                    │  static fallback │      │
+│       │                    └────────┬─────────┘      │
+│       │                             │ push result    │
+│       │                    ┌────────▼──────────┐     │
+│       └─ eventfd wakeup ◀─│    ResultQueue    │     │
+│              │             └───────────────────┘     │
+│              ▼                                       │
+│     writeBuffer += response, enable EPOLLOUT         │
+└──────────────────────────────────────────────────────┘
 ```
 
 - **`Socket`** — RAII wrapper around the listening file descriptor
@@ -74,6 +74,8 @@ See [Roadmap](#roadmap) below — these are the next things being built.
 - **`Router`** — maps `(method, path)` → handler lambda for dynamic routes
 - **`StaticFileHandler`** — resolves a request path against a web root using `try_files`-style conventions, with path-traversal protection on every candidate
 - **`Logger`** — thread-safe, writes structured log lines to disk
+- **`EpollEventLoop`** — thin wrapper around `epoll_create`/`epoll_ctl`/`epoll_wait` that exposes a small `registerFD`/`changeFdMode`/`removeFD`/`getEvents` API instead of raw epoll calls, so `Server` deals in `IOEvent`s rather than `epoll_event` structs directly
+- **`ServerConfig`** — plain struct holding port, worker thread count, max epoll events, header/body size limits, log file paths, and the static file root; built via a `ServerConfigBuilder` fluent API instead of being hardcoded
 
 ## Getting started
 
@@ -86,11 +88,32 @@ See [Roadmap](#roadmap) below — these are the next things being built.
 ### Build
 
 ```bash
-git clone https://github.com/<your-username>/http-server.git
+git clone https://github.com/prathamGiri/http-server.git
 cd http-server
 mkdir build && cd build
 cmake ..
 make
+```
+
+### Configuration
+
+Server settings are assembled in `main.cpp` via `ServerConfigBuilder` rather than hardcoded — port, worker thread count, max epoll events per `epoll_wait` call, header/body size limits, log file paths, and the static file root all go through it:
+
+```cpp
+ServerConfig config = ServerConfigBuilder()
+    .withPort(8080)
+    .withMaxThreads(4)
+    .withMaxEpollEvents(10)
+    .withServerLogFile("/var/log/http-server/ServerLogs.log")
+    .withClientLogFile("/var/log/http-server/ClientLogs.log")
+    .withStaticFileDir("../static")
+    .build();
+```
+
+The default log paths point at `/var/log/http-server/`, so create that directory (or point the builder somewhere writable) before running:
+
+```bash
+sudo mkdir -p /var/log/http-server && sudo chown $USER /var/log/http-server
 ```
 
 ### Run
@@ -99,7 +122,7 @@ make
 ./server
 ```
 
-The server starts listening on port `8080`. Try it:
+The server starts listening on port `8080` (or whatever `.withPort(...)` was set to). Try it:
 
 ```bash
 curl http://localhost:8080/                          # serves static/index.html
@@ -131,28 +154,47 @@ router.get("/", [](const HTTPRequest&) {
 
 ```
 http-server/
-├── include/                # Header files (interfaces)
-│   ├── Server.hpp
-│   ├── Socket.hpp
-│   ├── ClientConnection.hpp
-│   ├── HTTPRequest.hpp
-│   ├── HTTPResponse.hpp
-│   ├── Router.hpp
-│   ├── Logger.hpp
-│   ├── ThreadPool.hpp
-│   ├── ResultQueue.hpp
-│   └── StaticFileHandler.hpp
-├── src/                     # Implementation
-│   ├── Server.cpp
-│   ├── Socket.cpp
-│   ├── HTTPRequest.cpp
-│   ├── HTTPResponse.cpp
-│   ├── Router.cpp
-│   ├── Logger.cpp
-│   ├── ThreadPool.cpp
-│   ├── StaticFileHandler.cpp
+├── include/
+│   ├── concurrency/
+│   │   ├── ResultQueue.hpp
+│   │   └── ThreadPool.hpp
+│   ├── core/
+│   │   ├── HTTPRequest.hpp
+│   │   └── HTTPResponse.hpp
+│   ├── logger/
+│   │   └── Logger.hpp
+│   ├── net/
+│   │   ├── ClientConnection.hpp
+│   │   ├── EpollEventLoop.hpp
+│   │   └── Socket.hpp
+│   ├── routing/
+│   │   ├── Router.hpp
+│   │   └── StaticFileHandler.hpp
+│   └── server/
+│       ├── Server.hpp
+│       └── ServerConfig.hpp
+├── src/
+│   ├── concurrency/
+│   │   └── ThreadPool.cpp
+│   ├── core/
+│   │   ├── HTTPRequest.cpp
+│   │   └── HTTPResponse.cpp
+│   ├── logging/
+│   │   └── Logger.cpp
+│   ├── net/
+│   │   ├── EpollEventLoop.cpp
+│   │   └── Socket.cpp
+│   ├── routing/
+│   │   ├── Router.cpp
+│   │   └── StaticFileHandler.cpp
+│   ├── server/
+│   │   ├── Server.cpp
+│   │   └── ServerConfig.cpp
 │   └── main.cpp
 ├── static/                  # Static site root — drop HTML/CSS/JS/images here
+│   ├── css/style.css
+│   └── index.html
+├── .github/workflows/       # CI: deploys to a self-hosted VM on push to main
 ├── CMakeLists.txt
 └── README.md
 ```
@@ -169,7 +211,7 @@ http-server/
 - [ ] Unit tests (parser, router, static file resolution) and integration tests (live request/response, concurrent load)
 - [ ] Load testing results (throughput/latency under `wrk`/`ab`, before/after thread pool comparison)
 - [ ] Dockerfile
-- [ ] CI pipeline that builds and runs tests on every PR (currently CI only deploys on push to `main`)
+- [ ] CI pipeline that builds and runs tests on every PR (currently `.github/workflows/deploy.yml` only pulls, rebuilds, and restarts on a self-hosted VM on push to `main` — no test/build gate on PRs)
 
 ## Design notes
 
