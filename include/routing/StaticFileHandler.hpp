@@ -1,7 +1,9 @@
 #pragma once
+
 #include <string>
-#include "HTTPRequest.hpp"
-#include "HTTPResponse.hpp"
+
+#include "core/HTTPRequest.hpp"
+#include "core/HTTPResponse.hpp"
 
 class StaticFileHandler {
 public:

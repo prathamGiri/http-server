@@ -10,7 +10,7 @@
 
 // convert above request to class
 
-#include "HTTPRequest.hpp"
+#include "core/HTTPRequest.hpp"
 
 #include <string>
 #include <sstream>

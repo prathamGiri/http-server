@@ -1,13 +1,27 @@
-#include "HTTPRequest.hpp"
-#include "HTTPResponse.hpp"
-#include "Router.hpp"
-#include "Server.hpp"
+#include "core/HTTPRequest.hpp"
+#include "core/HTTPResponse.hpp"
+#include "routing/Router.hpp"
+#include "server/Server.hpp"
+#include "server/ServerConfig.hpp"
+#include "concurrency/ThreadPool.hpp"
+#include "concurrency/ResultQueue.hpp"
+#include "net/EpollEventLoop.hpp"
+#include "logger/Logger.hpp"
+#include "routing/StaticFileHandler.hpp"
 
 int main(){
-    // Router Defined here
-    Router router;
+    ServerConfig config = ServerConfigBuilder()
+        .withPort(8080)
+        .withMaxThreads(4)
+        .withMaxEpollEvents(10)
+        .withServerLogFile("/var/log/http-server/ServerLogs.log")
+        .withClientLogFile("/var/log/http-server/ClientLogs.log")
+        .withStaticFileDir("../static")
+        .build();
+        
+    auto router = std::make_shared<Router>();
 
-    router.get(
+    router->get(
         "/",
         [](const HTTPRequest&){
             HTTPResponse response;
@@ -19,7 +33,7 @@ int main(){
         }
     );
 
-    router.get(
+    router->get(
         "/about",
         [](const HTTPRequest&){
             HTTPResponse response;
@@ -31,7 +45,7 @@ int main(){
         }
     );
 
-    router.get(
+    router->get(
         "/help",
         [](const HTTPRequest&){
             HTTPResponse response;
@@ -43,7 +57,7 @@ int main(){
         }
     );
 
-    router.post(
+    router->post(
         "/login",
         [](const HTTPRequest& request)
         {
@@ -54,9 +68,16 @@ int main(){
         }
     );
 
-    Server server(8080);
+    auto threadPool = std::make_shared<ThreadPool>(config.maxThreads);
+    auto resultQueue = std::make_shared<ResultQueue>();
+    auto epollInstance = std::make_shared<EpollEventLoop>(config.maxEpollEvents);
+    auto serverLogger = std::make_shared<Logger>(config.serverLogFile);
+    auto clientLogger = std::make_shared<Logger>(config.clientLogFile);
+    auto staticFileHandler = std::make_shared<StaticFileHandler>(config.staticFileDir);
 
-    server.setRouter(router);
+    Server server(config, router, threadPool, resultQueue, epollInstance, serverLogger, clientLogger, staticFileHandler);
+
+    // server.setRouter(router);
 
     server.start();
 
